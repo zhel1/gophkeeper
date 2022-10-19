@@ -1,21 +1,22 @@
-package textui
+package credsui
 
 import (
 	"fmt"
-	"strings"
-
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"strings"
 )
 
 const (
-	text = iota
+	login = iota
+	password
 	metadata
 )
 
 type ChangedMsg struct {
-	Text     string
+	Login    string
+	Password string
 	Metadata string
 }
 
@@ -43,7 +44,7 @@ type Model struct {
 
 func New() Model {
 	m := Model{
-		inputs: make([]textinput.Model, 2),
+		inputs: make([]textinput.Model, 3),
 	}
 
 	var t textinput.Model
@@ -54,11 +55,14 @@ func New() Model {
 
 		switch i {
 		case 0:
-			t.Placeholder = "Text"
+			t.Placeholder = "Login"
 			t.Focus()
 			t.PromptStyle = focusedStyle
 			t.TextStyle = focusedStyle
 		case 1:
+			t.Placeholder = "Password"
+			t.CharLimit = 64
+		case 2:
 			t.Placeholder = "Metadata"
 			t.CharLimit = 64
 		}
@@ -82,7 +86,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if s == "enter" && m.focusIndex == len(m.inputs) {
 				cmd := m.change(ChangedMsg{
-					Text:     m.inputs[text].Value(),
+					Login:    m.inputs[login].Value(),
+					Password: m.inputs[password].Value(),
 					Metadata: m.inputs[metadata].Value(),
 				})
 				return m, cmd
@@ -155,7 +160,8 @@ func (m Model) View() string {
 }
 
 func (m Model) SetData(data ChangedMsg) {
-	m.inputs[text].SetValue(data.Text)
+	m.inputs[login].SetValue(data.Login)
+	m.inputs[password].SetValue(data.Password)
 	m.inputs[metadata].SetValue(data.Metadata)
 }
 

@@ -10,13 +10,13 @@ import (
 )
 
 type UserSignUpInput struct {
-	Login        string
-	Password     string
+	Login    string
+	Password string
 }
 
 type UserSignInInput struct {
-	Login        string
-	Password     string
+	Login    string
+	Password string
 }
 
 type Users interface {
@@ -24,29 +24,39 @@ type Users interface {
 	SignIn(ctx context.Context, input UserSignInInput) (domain.Tokens, error)
 	RefreshTokens(ctx context.Context, token string) (domain.Tokens, error)
 }
+
 //**********************************************************************************************************************
 type Materials interface {
 	GetAllTextData(ctx context.Context, userID int) ([]domain.TextData, error)
 	UpdateTextDataByID(ctx context.Context, userID int, data domain.TextData) error
 	CreateNewTextData(ctx context.Context, userID int, data domain.TextData) error
+
+	GetAllCardData(ctx context.Context, userID int) ([]domain.CardData, error)
+	UpdateCardDataByID(ctx context.Context, userID int, data domain.CardData) error
+	CreateNewCardData(ctx context.Context, id int, data domain.CardData) error
+
+	GetAllCredData(ctx context.Context, userID int) ([]domain.CredData, error)
+	CreateNewCredData(ctx context.Context, id int, data domain.CredData) error
+	UpdateCredDataByID(ctx context.Context, userID int, data domain.CredData) error
 }
+
 //**********************************************************************************************************************
 type Updater interface {
-
 }
+
 //**********************************************************************************************************************
 type Services struct {
-	Users Users
-	Updater Updater
+	Users     Users
+	Updater   Updater
 	Materials Materials
 }
 
 type Deps struct {
-	Storages               *storage.Storages
-	Hasher                 hash.PasswordHasher
-	TokenManager           auth.TokenManager
-	AccessTokenTTL         time.Duration
-	RefreshTokenTTL        time.Duration
+	Storages        *storage.Storages
+	Hasher          hash.PasswordHasher
+	TokenManager    auth.TokenManager
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
 }
 
 func NewServices(deps Deps) *Services {
@@ -54,9 +64,9 @@ func NewServices(deps Deps) *Services {
 	updaterService := NewUpdaterService(deps.Storages.Users)
 	materials := NewMaterialsService(deps.Storages.Materials)
 
-	return &Services {
-		Users: users,
-		Updater: updaterService,
+	return &Services{
+		Users:     users,
+		Updater:   updaterService,
 		Materials: materials,
 	}
 }

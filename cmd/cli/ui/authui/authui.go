@@ -5,17 +5,15 @@ package authui
 
 import (
 	"fmt"
-	"github.com/charmbracelet/bubbles/timer"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 type Creds struct {
-	Login string
+	Login    string
 	Password string
 }
 
@@ -35,13 +33,13 @@ func SignIn(c Creds, fn func(c Creds) tea.Msg) tea.Cmd {
 }
 
 var (
-	focusedStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	blurredStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	cursorStyle         = focusedStyle.Copy()
-	noStyle             = lipgloss.NewStyle()
+	focusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	blurredStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	cursorStyle  = focusedStyle.Copy()
+	noStyle      = lipgloss.NewStyle()
 
-	buttonsCount = 2
-	blurredButtons = fmt.Sprintf("[ %s ] [ %s ]", blurredStyle.Render("Sign in"), blurredStyle.Render("Sign up"))
+	buttonsCount        = 2
+	blurredButtons      = fmt.Sprintf("[ %s ] [ %s ]", blurredStyle.Render("Sign in"), blurredStyle.Render("Sign up"))
 	focusedSignInButton = fmt.Sprintf("%s [ %s ]", focusedStyle.Copy().Render("[ Sign in ]"), blurredStyle.Render("Sign up"))
 	focusedSignUpButton = fmt.Sprintf("[ %s ] %s", blurredStyle.Render("Sign in"), focusedStyle.Copy().Render("[ Sign up ]"))
 )
@@ -49,16 +47,11 @@ var (
 type Model struct {
 	focusIndex int
 	inputs     []textinput.Model
-	spinner1 spinner.Model
-	timer   timer.Model
-
-	parent tea.Model
 }
 
-func New(parent tea.Model) Model {
+func New() Model {
 	m := Model{
 		inputs: make([]textinput.Model, 2),
-		parent: parent,
 	}
 
 	var t textinput.Model
@@ -106,7 +99,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			// If so, exit.
 			if s == "enter" && m.focusIndex >= len(m.inputs) {
 				creds := Creds{
-					Login: m.inputs[0].Value(),
+					Login:    m.inputs[0].Value(),
 					Password: m.inputs[1].Value(),
 				}
 
@@ -126,7 +119,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				m.focusIndex++
 			}
 
-			if m.focusIndex > len(m.inputs) + buttonsCount - 1 {
+			if m.focusIndex > len(m.inputs)+buttonsCount-1 {
 				m.focusIndex = 0
 			} else if m.focusIndex < 0 {
 				m.focusIndex = len(m.inputs) + buttonsCount - 1
@@ -178,7 +171,6 @@ func (m Model) View() string {
 			b.WriteRune('\n')
 		}
 	}
-
 
 	buttons := &blurredButtons
 	switch m.focusIndex {

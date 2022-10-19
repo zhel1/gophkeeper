@@ -15,11 +15,12 @@ import (
 )
 
 type ChangedMsg struct {
-	Number string
-	ExpDate time.Time
-	CVV	string
-	Name  string
-	Surname string
+	Number   string
+	ExpDate  time.Time
+	CVV      string
+	Name     string
+	Surname  string
+	Metadata string
 }
 
 func Change(c ChangedMsg, fn func(c ChangedMsg) tea.Msg) tea.Cmd {
@@ -37,6 +38,7 @@ const (
 	exp
 	cvv
 	name
+	metadata
 )
 
 const (
@@ -118,7 +120,7 @@ func nameValidator(s string) error {
 }
 
 func New() Model {
-	var inputs []textinput.Model = make([]textinput.Model, 4)
+	var inputs []textinput.Model = make([]textinput.Model, 5)
 	inputs[ccn] = textinput.New()
 	inputs[ccn].Placeholder = "4505 **** **** 1234"
 	inputs[ccn].Focus()
@@ -148,6 +150,12 @@ func New() Model {
 	inputs[name].Prompt = ""
 	inputs[name].Validate = nameValidator
 
+	inputs[metadata] = textinput.New()
+	inputs[metadata].Placeholder = "Metadata"
+	inputs[metadata].CharLimit = 31
+	inputs[metadata].Width = 20
+	inputs[metadata].Prompt = ""
+
 	return Model{
 		inputs:  inputs,
 		focused: 0,
@@ -168,13 +176,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			if m.focused == len(m.inputs)-1 {
 				//TODO Again validate to escape unfilled of partly filled fields
-				m.change(ChangedMsg{
-					Number: strings.ReplaceAll(m.inputs[ccn].Value(), " ",""),
-					ExpDate: parseExpireDate(m.inputs[exp].Value()),
-					CVV: m.inputs[cvv].Value(),
-					Name: parseName(m.inputs[name].Value()),
-					Surname: parseSurname(m.inputs[name].Value()),
+				cmd := m.change(ChangedMsg{
+					Number:   strings.ReplaceAll(m.inputs[ccn].Value(), " ", ""),
+					ExpDate:  parseExpireDate(m.inputs[exp].Value()),
+					CVV:      m.inputs[cvv].Value(),
+					Name:     parseName(m.inputs[name].Value()),
+					Surname:  parseSurname(m.inputs[name].Value()),
+					Metadata: m.inputs[metadata].Value(),
 				})
+				return m, cmd
 				//return m, tea.Quit
 			}
 			m.nextInput()
@@ -212,6 +222,8 @@ func (m Model) View() string {
  %s
  %s
  %s
+ %s
+ %s
 `,
 		inputStyle.Width(30).Render("Card Number"),
 		m.inputs[ccn].View(),
@@ -221,6 +233,8 @@ func (m Model) View() string {
 		m.inputs[cvv].View(),
 		inputStyle.Width(6).Render("Name"),
 		m.inputs[name].View(),
+		inputStyle.Width(9).Render("Metadata"),
+		m.inputs[metadata].View(),
 		applyStyle.Render("Apply ->"),
 	) + "\n"
 }
@@ -245,11 +259,12 @@ func (m Model) change(c ChangedMsg) tea.Cmd {
 	})
 }
 
-func (m Model)SetData(data ChangedMsg) {
+func (m Model) SetData(data ChangedMsg) {
 	m.inputs[ccn].SetValue(ccnFormater(data.Number))
 	m.inputs[exp].SetValue(data.ExpDate.Format("01/06"))
 	m.inputs[cvv].SetValue(data.CVV)
 	m.inputs[name].SetValue(data.Name + " " + data.Surname)
+	m.inputs[metadata].SetValue(data.Metadata)
 }
 
 func parseExpireDate(exp string) time.Time {
@@ -277,10 +292,10 @@ func parseSurname(nameAndSurname string) string {
 	return ""
 }
 
-func ccnFormater(ccn string) string{
+func ccnFormater(ccn string) string {
 	result := ""
 	for i := 0; i < len(ccn); i++ {
-		if i % 4 == 0 {
+		if i%4 == 0 {
 			result = result + " "
 		}
 		result = result + string(ccn[i])

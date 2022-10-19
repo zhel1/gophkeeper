@@ -7,13 +7,13 @@ import (
 )
 
 type Storages struct {
-	Users        Users
-	Materials	 Materials
+	Users     Users
+	Materials Materials
 }
 
 func NewStorages(db *sql.DB) *Storages {
 	return &Storages{
-		Users: NewUserStorage(db),
+		Users:     NewUserStorage(db),
 		Materials: NewMaterialsStorage(db),
 	}
 }
@@ -33,6 +33,14 @@ type Materials interface {
 	GetAllTextData(ctx context.Context, userID int) ([]domain.TextData, error)
 	UpdateTextDataByID(ctx context.Context, userID int, data domain.TextData) error
 	CreateNewTextData(ctx context.Context, userID int, data domain.TextData) error
+
+	GetAllCardData(ctx context.Context, userID int) ([]domain.CardData, error)
+	UpdateCardDataByID(ctx context.Context, userID int, data domain.CardData) error
+	CreateNewCardData(ctx context.Context, userID int, data domain.CardData) error
+
+	GetAllCredData(ctx context.Context, userID int) ([]domain.CredData, error)
+	UpdateCredDataByID(ctx context.Context, userID int, data domain.CredData) error
+	CreateNewCredData(ctx context.Context, userID int, data domain.CredData) error
 
 	Close() error
 }

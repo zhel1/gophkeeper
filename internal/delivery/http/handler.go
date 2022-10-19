@@ -3,9 +3,8 @@ package http
 import (
 	chimiddleware "github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
-	"github.com/labstack/echo/v4/middleware"
-
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	v1 "gophkeeper/internal/delivery/http/v1"
 	v2 "gophkeeper/internal/delivery/http/v2"
 	"gophkeeper/internal/service"
@@ -24,6 +23,7 @@ func NewHandler(services *service.Services, tokenManager auth.TokenManager) *Han
 		tokenManager: tokenManager,
 	}
 }
+
 //**********************************************************************************************************************
 // chi router
 //**********************************************************************************************************************
@@ -48,6 +48,7 @@ func (h *Handler) initAPI(router chi.Router) {
 		handlerV1.Init(r)
 	})
 }
+
 //**********************************************************************************************************************
 // echo router
 //**********************************************************************************************************************

@@ -3,10 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/charmbracelet/bubbles/timer"
 	"gophkeeper/cmd/cli/client"
 	"gophkeeper/cmd/cli/ui/authui"
 	"gophkeeper/cmd/cli/ui/creditcardui"
+	"gophkeeper/cmd/cli/ui/credsui"
 	"gophkeeper/cmd/cli/ui/textui"
+	"gophkeeper/internal/domain"
+	"strconv"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -18,6 +22,7 @@ import (
 const (
 	text = iota
 	card
+	cred
 )
 
 type Mode int
@@ -31,17 +36,17 @@ const (
 
 var (
 	modelStyle = lipgloss.NewStyle().
-	//	Width(40).
+		//	Width(40).
 		Height(10).
 		Align(lipgloss.Center, lipgloss.Center).
 		BorderStyle(lipgloss.HiddenBorder())
 	focusedModelStyle = lipgloss.NewStyle().
-	//	Width(40).
+		//	Width(40).
 		Height(10).
 		Align(lipgloss.Center, lipgloss.Center).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("69"))
-	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	//tableStyle = lipgloss.NewStyle().
 	//	BorderStyle(lipgloss.NormalBorder()).
 	//	BorderForeground(lipgloss.Color("240"))
@@ -50,41 +55,45 @@ var (
 
 type mainModel struct {
 	//widgets
-	auth 			authui.Model
-	tables			[]table.Model
-	editWgts		[]tea.Model
+	auth     authui.Model
+	tables   []table.Model
+	editWgts []tea.Model
 
 	//variables
-	currentTable   	int
-	status 			string
-	mode			Mode
+	currentTable  int
+	status        string
+	mode          Mode
+	syncDataTimer timer.Model // used without view
 
 	//client
-	client 			*client.GKClient
-	errC			<- chan error
+	client *client.GKClient
+	errC   <-chan error
 
 	//context
-	ctx 			context.Context
-	cancel			context.CancelFunc
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func newModel() mainModel {
 	//init variables
 	m := mainModel{
-		currentTable: 0,
-		mode: ModeAuth,
+		currentTable:  0,
+		mode:          ModeAuth,
+		syncDataTimer: timer.NewWithInterval(3*time.Second, 3*time.Second),
 	}
 
 	//init widgets
-	m.auth 	= authui.New(&m)
+	m.auth = authui.New()
 
-	m.tables = make([]table.Model,2,2)
-	m.tables[0] = createTable("AAAAAAA")
-	m.tables[1] = createTable("VVVVVVV")
+	m.tables = make([]table.Model, 3, 3)
+	m.tables[text] = createTextDataTable(nil)
+	m.tables[card] = createCardDataTable(nil)
+	m.tables[cred] = createCredDataTable(nil)
 
-	m.editWgts = make([]tea.Model,2,2)
-	m.editWgts[0] = textui.New()
-	m.editWgts[1] = creditcardui.New()
+	m.editWgts = make([]tea.Model, 3, 3)
+	m.editWgts[text] = textui.New()
+	m.editWgts[card] = creditcardui.New()
+	m.editWgts[cred] = credsui.New()
 
 	//client
 	m.client = client.NewGKClient("http://localhost:8081")
@@ -104,9 +113,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case authui.SignInMsg:  //TODO get rid of code duplication
+	case authui.SignInMsg: //TODO get rid of code duplication
 		_, err := m.client.UserSignIn(m.ctx, client.AuthInput{
-			Login: msg.Login,
+			Login:    msg.Login,
 			Password: msg.Password,
 		})
 
@@ -115,10 +124,11 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.mode = ModeBrowse
 			m.errC = m.client.KeepTokensFresh(m.ctx)
+			cmds = append(cmds, m.syncDataTimer.Init())
 		}
 	case authui.SignUpMsg: //TODO get rid of code duplication
 		_, err := m.client.UserSignUp(context.Background(), client.AuthInput{
-			Login: msg.Login,
+			Login:    msg.Login,
 			Password: msg.Password,
 		})
 
@@ -127,20 +137,124 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.mode = ModeBrowse
 			m.errC = m.client.KeepTokensFresh(m.ctx)
+			cmds = append(cmds, m.syncDataTimer.Init())
 		}
+	case credsui.ChangedMsg:
+		switch m.mode {
+		case ModeEdit:
+			id, _ := strconv.Atoi(m.tables[cred].SelectedRow()[0])
+			err := m.client.UpdateCredData(m.ctx, domain.CredData{
+				ID:       id,
+				Login:    msg.Login,
+				Password: msg.Password,
+				Metadata: msg.Metadata,
+			})
+			if err != nil {
+				m.status = err.Error()
+			}
+		case ModeAdd:
+			err := m.client.CreateNewCredData(m.ctx, domain.CredData{
+				Login:    msg.Login,
+				Password: msg.Password,
+				Metadata: msg.Metadata,
+			})
+			if err != nil {
+				m.status = err.Error()
+			}
+		}
+		m.mode = ModeBrowse
 	case creditcardui.ChangedMsg:
+		switch m.mode {
+		case ModeEdit:
+			id, _ := strconv.Atoi(m.tables[card].SelectedRow()[0])
+			err := m.client.UpdateCardData(m.ctx, domain.CardData{
+				ID:         id,
+				CardNumber: msg.Number,
+				ExpDate:    msg.ExpDate,
+				CVV:        msg.CVV,
+				Name:       msg.Name,
+				Surname:    msg.Surname,
+				Metadata:   msg.Metadata,
+			})
+			if err != nil {
+				m.status = err.Error()
+			}
+		case ModeAdd:
+			err := m.client.CreateNewCardData(m.ctx, domain.CardData{
+				CardNumber: msg.Number,
+				ExpDate:    msg.ExpDate,
+				CVV:        msg.CVV,
+				Name:       msg.Name,
+				Surname:    msg.Surname,
+				Metadata:   msg.Metadata,
+			})
+			if err != nil {
+				m.status = err.Error()
+			}
+		}
 		m.mode = ModeBrowse
-		//TODO handel creditcard changed
-		//msg.Number
-		//...
 	case textui.ChangedMsg:
+		switch m.mode {
+		case ModeEdit:
+			id, _ := strconv.Atoi(m.tables[text].SelectedRow()[0])
+			err := m.client.UpdateTextData(m.ctx, domain.TextData{
+				ID:       id,
+				Text:     msg.Text,
+				Metadata: msg.Metadata,
+			})
+			if err != nil {
+				m.status = err.Error()
+			}
+		case ModeAdd:
+			err := m.client.CreateNewTextData(m.ctx, domain.TextData{
+				Text:     msg.Text,
+				Metadata: msg.Metadata,
+			})
+			if err != nil {
+				m.status = err.Error()
+			}
+		}
 		m.mode = ModeBrowse
-		//TODO handel text changed
-		//msg.Text
+	case timer.TickMsg, timer.StartStopMsg:
+		m.syncDataTimer, cmd = m.syncDataTimer.Update(msg)
+		cmds = append(cmds, m.syncDataTimer.Init())
+
+		textRows, err := m.client.GetAllTextData(m.ctx)
+		if err != nil {
+			m.status = err.Error()
+		} else {
+			cursor := m.tables[text].Cursor()
+			m.tables[text] = createTextDataTable(textRows)
+			if cursor != -1 {
+				m.tables[text].SetCursor(cursor)
+			}
+		}
+
+		cardRows, err := m.client.GetAllCardData(m.ctx)
+		if err != nil {
+			m.status = err.Error()
+		} else {
+			cursor := m.tables[card].Cursor()
+			m.tables[card] = createCardDataTable(cardRows)
+			if cursor != -1 {
+				m.tables[card].SetCursor(cursor)
+			}
+		}
+
+		credsRows, err := m.client.GetAllCredsData(m.ctx)
+		if err != nil {
+			m.status = err.Error()
+		} else {
+			cursor := m.tables[cred].Cursor()
+			m.tables[cred] = createCredDataTable(credsRows)
+			if cursor != -1 {
+				m.tables[cred].SetCursor(cursor)
+			}
+		}
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
-			if m.mode != ModeEdit {
+			if m.mode != ModeEdit && m.mode != ModeAdd {
 				m.cancel()
 				return m, tea.Quit
 			}
@@ -153,12 +267,27 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentTable = (m.currentTable + 1) % len(m.tables)
 			}
 		case "a":
-			if m.mode == ModeBrowse {
-				m.mode = ModeAdd
+			if m.mode != ModeBrowse {
+				break
 			}
+			m.mode = ModeAdd
+
+			m.editWgts[m.currentTable], cmd = m.editWgts[m.currentTable].Update(textinput.Blink)
+			return m, cmd
 		case "e":
+			if m.mode != ModeBrowse {
+				break
+			}
+
 			//take current data from selected table
-			cells := m.tables[m.currentTable].SelectedRow()
+			var cells []string
+			if m.tables[m.currentTable].Cursor() >= 0 {
+				cells = m.tables[m.currentTable].SelectedRow()
+			}
+
+			if len(cells) == 0 {
+				break
+			}
 
 			switch editWgt := m.editWgts[m.currentTable].(type) {
 			case textui.Model:
@@ -166,7 +295,8 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				//1 - text id
 				//2 - metadata
 				editWgt.SetData(textui.ChangedMsg{
-					Text: cells[1],
+					Text:     cells[1],
+					Metadata: cells[2],
 				})
 			case creditcardui.Model:
 				//0 - data id
@@ -178,17 +308,25 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				//6 - metadata
 				date, _ := time.Parse("01/06", cells[2])
 				editWgt.SetData(creditcardui.ChangedMsg{
-					Number: cells[0],
-					ExpDate: date,
-					CVV: cells[3],
-					Name: cells[4],
-					Surname: cells[5],
+					Number:   cells[1],
+					ExpDate:  date,
+					CVV:      cells[3],
+					Name:     cells[4],
+					Surname:  cells[5],
+					Metadata: cells[6],
+				})
+			case credsui.Model:
+				//0 - data id
+				//1 - login
+				//2 - password
+				//3 - metadata
+				editWgt.SetData(credsui.ChangedMsg{
+					Login:    cells[1],
+					Password: cells[2],
+					Metadata: cells[3],
 				})
 			}
-
-			if m.mode == ModeBrowse {
-				m.mode = ModeEdit
-			}
+			m.mode = ModeEdit
 		}
 
 		if m.mode != ModeAuth {
@@ -196,7 +334,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
-		if m.mode == ModeEdit {
+		if m.mode == ModeEdit || m.mode == ModeAdd {
 			m.editWgts[m.currentTable], cmd = m.editWgts[m.currentTable].Update(msg)
 			cmds = append(cmds, cmd)
 		}
@@ -205,7 +343,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	select {
-	case <- m.errC:
+	case <-m.errC:
 		m.mode = ModeAuth
 	default:
 
@@ -233,12 +371,13 @@ func (m mainModel) View() string {
 		for i, tbl := range m.tables {
 			if i == m.currentTable {
 				if m.mode == ModeEdit || m.mode == ModeAdd {
-					switch m.currentTable {
-					case text:
-						line = append(line, m.editWgts[m.currentTable].View())
-					case card:
-						line = append(line, m.editWgts[m.currentTable].View())
-					}
+					line = append(line, m.editWgts[m.currentTable].View())
+					//switch m.currentTable {
+					//case text:
+					//	line = append(line, m.editWgts[m.currentTable].View())
+					//case card:
+					//	line = append(line, m.editWgts[m.currentTable].View())
+					//}
 				} else {
 					line = append(line, focusedModelStyle.Render(fmt.Sprintf("%4s", tbl.View())))
 				}
@@ -247,38 +386,26 @@ func (m mainModel) View() string {
 			}
 		}
 		s += lipgloss.JoinHorizontal(lipgloss.Top, line...)
-		if m.mode != ModeEdit  {
-			m.status = "\ntab: focus next • n: new  • q: exit\n"
-		}
 	} else {
 		s += lipgloss.NewStyle().Render(m.auth.View())
 	}
 
+	if m.mode == ModeBrowse {
+		help := "\ntab: focus next • q: exit • a: add new row • e: edit selected row\n"
+		s += helpStyle.Render(fmt.Sprintf(help))
+	}
 	s += helpStyle.Render(fmt.Sprintf(m.status))
 
 	return s
 }
 
-func createTable(name string) table.Model {
-	columns := []table.Column{
-		{Title: name, Width: 10},
-		{Title: "City", Width: 10},
-		{Title: "Country", Width: 10},
-		{Title: "Population", Width: 10},
-	}
-
-	rows := []table.Row{
-		{"1", "Tokyo", "Japan", "37,274,000"},
-		{"2", "Delhi", "India", "32,065,760"},
-		{"3", "Shanghai", "China", "28,516,904"},
-	}
-
+func createTable(columns []table.Column, rows []table.Row) table.Model {
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithRows(rows),
 		table.WithFocused(true),
 		table.WithHeight(7),
-		)
+	)
 
 	s := table.DefaultStyles()
 	s.Header = s.Header.
@@ -292,10 +419,72 @@ func createTable(name string) table.Model {
 		Bold(false)
 	t.SetStyles(s)
 
+	if len(columns) == 0 || len(rows) == 0 {
+		t.SetCursor(-1)
+	}
+
 	return t
+}
+
+func createTextDataTable(data []domain.TextData) table.Model {
+	columns := []table.Column{
+		{Title: "id", Width: 4},
+		{Title: "Text", Width: 10},
+		{Title: "Metadata", Width: 20},
+	}
+
+	rows := make([]table.Row, 0, len(data))
+	for _, row := range data {
+		rows = append(rows, table.Row{
+			strconv.Itoa(row.ID), row.Text, row.Metadata,
+		})
+	}
+
+	return createTable(columns, rows)
+}
+
+func createCardDataTable(data []domain.CardData) table.Model {
+	columns := []table.Column{
+		{Title: "id", Width: 4},
+		{Title: "CardNumber", Width: 20},
+		{Title: "ExpData", Width: 8},
+		{Title: "CVV", Width: 4},
+		{Title: "Name", Width: 10},
+		{Title: "Surname", Width: 10},
+		{Title: "Metadata", Width: 20},
+	}
+
+	rows := make([]table.Row, 0, len(data))
+	for _, row := range data {
+		rows = append(rows, table.Row{
+			strconv.Itoa(row.ID), row.CardNumber, row.ExpDate.Format("01/06"), row.CVV, row.Name, row.Surname, row.Metadata,
+		})
+	}
+
+	return createTable(columns, rows)
+}
+
+func createCredDataTable(data []domain.CredData) table.Model {
+	columns := []table.Column{
+		{Title: "id", Width: 4},
+		{Title: "Login", Width: 15},
+		{Title: "Password", Width: 10},
+		{Title: "Metadata", Width: 20},
+	}
+
+	rows := make([]table.Row, 0, len(data))
+	for _, row := range data {
+		rows = append(rows, table.Row{
+			strconv.Itoa(row.ID), row.Login, row.Password, row.Metadata,
+		})
+	}
+
+	return createTable(columns, rows)
 }
 
 func main() {
 	//tea.NewProgram(creditcardui.New()).Start()
+	//tea.NewProgram(textui.New()).Start()
+	//tea.NewProgram(credsui.New()).Start()
 	tea.NewProgram(newModel()).Start()
 }

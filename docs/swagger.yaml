@@ -1,0 +1,292 @@
+openapi: "3.0.0"
+info:
+  version: 1.0.0
+  title: Swagger Gophkeeper
+  description: A sample API that uses a gophkeeper in the OpenAPI 3.0 specification
+  contact:
+    name: Denis Zheleznov
+    email: zhel1@yandex.ru
+servers:
+  - url: https://gophkeeper.ru/
+paths:
+  /api/user/sign-up:
+    post:
+      summary: users regist
+      operationId: Register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '200':
+          description: success regist
+        '400':
+          description: invalid request format
+        '409':
+          description:  login is already exists
+        '500':
+          description:  internal server error
+  /api/user/sign-in:
+    post:
+      description: User auth
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '200':
+          description: success auth
+        '400':
+          description: invalid request format
+        '500':
+          description: internal server error
+  /api/materials/card:
+    put:
+      security:
+        - Auth: [ ]
+      description: add card data
+      operationId: CreateNewCardData
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardData'
+      responses:
+        '200':
+          description: card data add
+        '400':
+          description: invalid request format
+        '401':
+          description: user not authenticated
+        '500':
+          description: internal server error
+    get:
+      security:
+        - Auth: [ ]
+      description: get card data list
+      operationId: getAllCardData
+      responses:
+        '200':
+          description: get array with card data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CardData'
+    post:
+      security:
+        - cookieAuth: [ ]
+      description: Update card data
+      operationId: UpdateCardDataByID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardData'
+      responses:
+        '200':
+          description: update card data
+        '400':
+          description: invalid request format
+        '401':
+          description: user not authenticated
+        '500':
+          description: internal server error
+  /api/materials/cred:
+    put:
+      security:
+        - Auth: [ ]
+      description: Load cred data
+      operationId: CreateNewCredData
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredData'
+      responses:
+        '200':
+          description: cred data add
+        '400':
+          description: invalid request format
+        '401':
+          description: user not authenticated
+        '500':
+          description: internal server error
+    get:
+      security:
+        - Auth: [ ]
+      description: get cred data
+      operationId: getAllCredData
+      responses:
+        '200':
+          description: get cred data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CredData'
+    post:
+      security:
+        - Auth: [ ]
+      description: update cred data
+      operationId: UpdateCredDataByID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredData'
+      responses:
+        '200':
+          description: update cred data
+        '400':
+          description: invalid request format
+        '401':
+          description: user not authenticated
+        '500':
+          description: internal server error
+  /api/materials/text:
+    put:
+      security:
+        - Auth: [ ]
+      description: Load text data
+      operationId: CreateNewTextData
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TextData'
+      responses:
+        '200':
+          description: add text data
+        '400':
+          description: invalid request format
+        '401':
+          description: user not authenticated
+        '500':
+          description: internal server error
+    get:
+      security:
+        - Auth: [ ]
+      description: get  text data
+      operationId: getAllTextData
+      responses:
+        '200':
+          description: get text data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TextData'
+        '204':
+          description: not found any data
+        '401':
+          description: user is not authorized
+        '500':
+          description: internal server error
+    post:
+      security:
+        - Auth: [ ]
+      description: Update text data
+      operationId: UpdateTextDataByID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TextData'
+      responses:
+        '200':
+          description: update text data
+        '400':
+          description: invalid request format
+        '401':
+          description: user not authenticated
+        '500':
+          description: internal server error
+components:
+  securitySchemes:
+    Auth:
+      type: apiKey
+      in: header
+      name: token
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - login
+        - password
+      properties:
+        id:
+          type: string
+        login:
+          type: string
+        password:
+          type: string
+    TextData:
+      type: object
+      required:
+        - id
+        - text
+        - metadata
+      properties:
+        id:
+          type: number
+        text:
+          type: string
+        metadata:
+          type: string
+    CredData:
+      type: object
+      required:
+        - id
+        - login
+        - password
+        - metadata
+      properties:
+        id:
+          type: number
+        login:
+          type: string
+        password:
+          type: string
+        metadata:
+          type: string
+    CardData:
+      type: object
+      required:
+        - id
+        - card_number
+        - exp_date
+        - cvc
+        - name
+        - surname
+        - metadata
+      properties:
+        id:
+          type: number
+        card_number:
+          type: string
+        exp_date:
+          type: date
+        cvc:
+          type: string
+        name:
+          type: string
+        surname:
+          type: string
+        metadata:
+          type: string

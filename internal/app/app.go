@@ -40,10 +40,10 @@ func Run() {
 	}
 
 	deps := service.Deps{
-		Storages: storages,
-		Hasher: hasher,
-		TokenManager: tokenManager,
-		AccessTokenTTL: 1 * time.Minute,
+		Storages:        storages,
+		Hasher:          hasher,
+		TokenManager:    tokenManager,
+		AccessTokenTTL:  10 * time.Minute,
 		RefreshTokenTTL: 40 * 24 * time.Hour,
 	}
 
@@ -130,7 +130,7 @@ func createTable(db *sql.DB) error {
 		id serial primary key,
 		user_id int not null references users(id),
 		card_number text not null unique,
-		exp_date date not null, 
+		exp_date timestamp not null, 
 		cvv text not null,
 		"name" text,
 		surname text,
