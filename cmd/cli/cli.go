@@ -11,6 +11,8 @@ import (
 	"gophkeeper/cmd/cli/ui/textui"
 	"gophkeeper/internal/domain"
 	"strconv"
+	"strings"
+
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -54,6 +56,9 @@ var (
 )
 
 type mainModel struct {
+	//titles
+	titles []string
+
 	//widgets
 	auth     authui.Model
 	tables   []table.Model
@@ -81,6 +86,12 @@ func newModel() mainModel {
 		mode:          ModeAuth,
 		syncDataTimer: timer.NewWithInterval(3*time.Second, 3*time.Second),
 	}
+
+	//init titles
+	m.titles = make([]string, 3, 3)
+	m.titles[text] = "Текстовые и бинарные данные"
+	m.titles[card] = "Данные банковских карт"
+	m.titles[cred] = "Креды"
 
 	//init widgets
 	m.auth = authui.New()
@@ -367,17 +378,20 @@ func (m mainModel) View() string {
 
 	//var status string
 	if m.mode != ModeAuth {
+		s += lipgloss.JoinHorizontal(lipgloss.Center,
+			lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render(m.titles[text])+strings.Repeat(" ", abs(m.tables[text].Width()-len(m.titles[text]))),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render(m.titles[card])+strings.Repeat(" ", abs(m.tables[card].Width()-len(m.titles[card]))),
+			"                       ",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render(m.titles[cred])+strings.Repeat(" ", abs(m.tables[cred].Width()-len(m.titles[cred]))),
+		)
+
+		s += "\n"
+
 		var line []string
 		for i, tbl := range m.tables {
 			if i == m.currentTable {
 				if m.mode == ModeEdit || m.mode == ModeAdd {
 					line = append(line, m.editWgts[m.currentTable].View())
-					//switch m.currentTable {
-					//case text:
-					//	line = append(line, m.editWgts[m.currentTable].View())
-					//case card:
-					//	line = append(line, m.editWgts[m.currentTable].View())
-					//}
 				} else {
 					line = append(line, focusedModelStyle.Render(fmt.Sprintf("%4s", tbl.View())))
 				}
@@ -429,7 +443,7 @@ func createTable(columns []table.Column, rows []table.Row) table.Model {
 func createTextDataTable(data []domain.TextData) table.Model {
 	columns := []table.Column{
 		{Title: "id", Width: 4},
-		{Title: "Text", Width: 10},
+		{Title: "Data", Width: 10},
 		{Title: "Metadata", Width: 20},
 	}
 
@@ -480,6 +494,13 @@ func createCredDataTable(data []domain.CredData) table.Model {
 	}
 
 	return createTable(columns, rows)
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func main() {
