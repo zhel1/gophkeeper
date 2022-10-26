@@ -57,7 +57,7 @@ type Deps struct {
 }
 
 func NewServices(deps Deps) *Services {
-	users := NewUserService(deps.Hasher, deps.Storages.Users, deps.TokenManager, deps.AccessTokenTTL, deps.AccessTokenTTL)
+	users := NewUserService(deps.Hasher, deps.Storages.Users, deps.TokenManager, deps.AccessTokenTTL, deps.RefreshTokenTTL)
 	materials := NewMaterialsService(deps.Storages.Materials)
 
 	return &Services{

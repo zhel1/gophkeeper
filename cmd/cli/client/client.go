@@ -194,6 +194,14 @@ func (c *GKClient) KeepTokensFresh(ctx context.Context) <-chan error {
 	return errc
 }
 
+func (c *GKClient) SetAccessToken(token string) {
+	c.tokens.AccessToken = token
+}
+
+func (c *GKClient) SetRefreshToken(token string) {
+	c.tokens.RefreshToken = token
+}
+
 //**********************************************************************************************************************
 // Text
 //**********************************************************************************************************************
