@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+//go:generate mockgen -source=service.go -destination=mocks/mock.go
+
 type UserSignUpInput struct {
 	Login    string
 	Password string
@@ -41,13 +43,8 @@ type Materials interface {
 }
 
 //**********************************************************************************************************************
-type Updater interface {
-}
-
-//**********************************************************************************************************************
 type Services struct {
 	Users     Users
-	Updater   Updater
 	Materials Materials
 }
 
@@ -60,13 +57,11 @@ type Deps struct {
 }
 
 func NewServices(deps Deps) *Services {
-	users := NewUserService(deps.Hasher, deps.Storages.Users, deps.TokenManager, deps.AccessTokenTTL, deps.AccessTokenTTL)
-	updaterService := NewUpdaterService(deps.Storages.Users)
+	users := NewUserService(deps.Hasher, deps.Storages.Users, deps.TokenManager, deps.AccessTokenTTL, deps.RefreshTokenTTL)
 	materials := NewMaterialsService(deps.Storages.Materials)
 
 	return &Services{
 		Users:     users,
-		Updater:   updaterService,
 		Materials: materials,
 	}
 }

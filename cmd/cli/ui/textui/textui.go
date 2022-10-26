@@ -51,16 +51,17 @@ func New() Model {
 		t = textinput.New()
 		t.CursorStyle = cursorStyle
 		t.CharLimit = 32
+		t.Width = 35
 
 		switch i {
 		case 0:
-			t.Placeholder = "Text"
+			t.Placeholder = "Text" + strings.Repeat(" ", 31)
 			t.Focus()
 			t.PromptStyle = focusedStyle
 			t.TextStyle = focusedStyle
 		case 1:
 			t.Placeholder = "Metadata"
-			t.CharLimit = 64
+			//t.CharLimit = 64
 		}
 
 		m.inputs[i] = t

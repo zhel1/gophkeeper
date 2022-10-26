@@ -3,488 +3,265 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/charmbracelet/bubbles/timer"
-	"gophkeeper/cmd/cli/client"
-	"gophkeeper/cmd/cli/ui/authui"
-	"gophkeeper/cmd/cli/ui/creditcardui"
-	"gophkeeper/cmd/cli/ui/credsui"
-	"gophkeeper/cmd/cli/ui/textui"
-	"gophkeeper/internal/domain"
-	"strconv"
-	"time"
-
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-)
-
-const (
-	text = iota
-	card
-	cred
-)
-
-type Mode int
-
-const (
-	ModeAuth Mode = iota
-	ModeBrowse
-	ModeEdit
-	ModeAdd
+	"gophkeeper/cmd/cli/client"
+	"gophkeeper/cmd/cli/ui"
+	"gophkeeper/internal/domain"
+	"gopkg.in/alecthomas/kingpin.v2"
+	"log"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 )
 
 var (
-	modelStyle = lipgloss.NewStyle().
-		//	Width(40).
-		Height(10).
-		Align(lipgloss.Center, lipgloss.Center).
-		BorderStyle(lipgloss.HiddenBorder())
-	focusedModelStyle = lipgloss.NewStyle().
-		//	Width(40).
-		Height(10).
-		Align(lipgloss.Center, lipgloss.Center).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("69"))
-	helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	//tableStyle = lipgloss.NewStyle().
-	//	BorderStyle(lipgloss.NormalBorder()).
-	//	BorderForeground(lipgloss.Color("240"))
-	//isAuthorised 	= false
+	cli         = kingpin.New("Gophkeeper", "Gophkeeper is a tool for keeping credentials, text data, credit cards and binary data.")
+	cmd         string
+	accessToken = cli.Flag("access-token", "access token is needed to call private methods").String()
+	serverAddr  = cli.Flag("server-addr", "server address").Default("http://localhost:8081").String()
+
+	interactiveMode = cli.Command("interact", "run client in interactive mode")
+
+	//auth
+	signUp         = cli.Command("sign-up", "create new user and login in service")
+	signUpLogin    = signUp.Flag("login", "login or user name").Required().String()
+	signUpPassword = signUp.Flag("password", "password for user name").Required().String()
+
+	signIn         = cli.Command("sign-in", "enter the service")
+	signInLogin    = signIn.Flag("login", "login or user name").Required().String()
+	signInPassword = signIn.Flag("password", "password for user name").Required().String()
+
+	refresh      = cli.Command("refresh", "refresh access and refresh tokens")
+	refreshToken = refresh.Flag("refresh-token", "refresh tokens").Required().String()
+
+	//text
+	textGetAll = cli.Command("text-get", "get all text data from server")
+
+	textUpdateByID = cli.Command("text-update", "update record")
+	textUID        = textUpdateByID.Flag("id", "record id").Required().Int()
+	textUText      = textUpdateByID.Flag("text", "text").Required().String()
+	textUMetadata  = textUpdateByID.Flag("metadata", "metadata").Required().String()
+
+	textCreateNew = cli.Command("text-create", "crate new record")
+	textCText     = textCreateNew.Flag("text", "text").Required().String()
+	textCMetadata = textCreateNew.Flag("metadata", "metadata").Required().String()
+
+	//card
+	cardGetAll = cli.Command("card-get", "get all card data from server")
+
+	cardUpdateByID  = cli.Command("card-update", "update record")
+	cardUID         = cardUpdateByID.Flag("id", "record ID").Required().Int()
+	cardUCardNumber = cardUpdateByID.Flag("card-number", "16-digit card number").Required().String()
+	cardUExpDate    = cardUpdateByID.Flag("exp-date", "expired date in format mm/yy").Required().String()
+	cardUCVV        = cardUpdateByID.Flag("cvv", "cvv").Required().String()
+	cardUName       = cardUpdateByID.Flag("name", "name").Required().String()
+	cardUSurname    = cardUpdateByID.Flag("surname", "surname").Required().String()
+	cardUMetadata   = cardUpdateByID.Flag("metadata", "metadata").Required().String()
+
+	cardCreateNew   = cli.Command("card-create", "crate new record")
+	cardCCardNumber = cardCreateNew.Flag("card-number", "16-digit card number").Required().String()
+	cardCExpDate    = cardCreateNew.Flag("exp-date", "expired date in format mm/yy").Required().String()
+	cardCCVV        = cardCreateNew.Flag("cvv", "cvv").Required().String()
+	cardCName       = cardCreateNew.Flag("name", "name").Required().String()
+	cardCSurname    = cardCreateNew.Flag("surname", "surname").Required().String()
+	cardCMetadata   = cardCreateNew.Flag("metadata", "metadata").Required().String()
+
+	//cred
+	credGetAll = cli.Command("cred-get", "get all cred data from server")
+
+	credUpdateByID = cli.Command("cred-update", "update record")
+	credUID        = credUpdateByID.Flag("id", "record id").Required().Int()
+	credULogin     = credUpdateByID.Flag("login", "login").Required().String()
+	credUPassword  = credUpdateByID.Flag("password", "password").Required().String()
+	credUMetadata  = credUpdateByID.Flag("metadata", "metadata").Required().String()
+
+	credCreateNew = cli.Command("cred-create", "crate new record")
+	credCLogin    = credCreateNew.Flag("login", "login").Required().String()
+	credCPassword = credCreateNew.Flag("password", "password").Required().String()
+	credCMetadata = credCreateNew.Flag("metadata", "metadata").Required().String()
 )
 
-type mainModel struct {
-	//widgets
-	auth     authui.Model
-	tables   []table.Model
-	editWgts []tea.Model
-
-	//variables
-	currentTable  int
-	status        string
-	mode          Mode
-	syncDataTimer timer.Model // used without view
-
-	//client
-	client *client.GKClient
-	errC   <-chan error
-
-	//context
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
-func newModel() mainModel {
-	//init variables
-	m := mainModel{
-		currentTable:  0,
-		mode:          ModeAuth,
-		syncDataTimer: timer.NewWithInterval(3*time.Second, 3*time.Second),
-	}
-
-	//init widgets
-	m.auth = authui.New()
-
-	m.tables = make([]table.Model, 3, 3)
-	m.tables[text] = createTextDataTable(nil)
-	m.tables[card] = createCardDataTable(nil)
-	m.tables[cred] = createCredDataTable(nil)
-
-	m.editWgts = make([]tea.Model, 3, 3)
-	m.editWgts[text] = textui.New()
-	m.editWgts[card] = creditcardui.New()
-	m.editWgts[cred] = credsui.New()
-
-	//client
-	m.client = client.NewGKClient("http://localhost:8081")
-
-	//context
-	m.ctx, m.cancel = context.WithCancel(context.Background())
-
-	return m
-}
-
-func (m mainModel) Init() tea.Cmd {
-	return textinput.Blink
-}
-
-func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	var cmds []tea.Cmd
-
-	switch msg := msg.(type) {
-	case authui.SignInMsg: //TODO get rid of code duplication
-		_, err := m.client.UserSignIn(m.ctx, client.AuthInput{
-			Login:    msg.Login,
-			Password: msg.Password,
-		})
-
-		if err != nil {
-			m.status = err.Error()
-		} else {
-			m.mode = ModeBrowse
-			m.errC = m.client.KeepTokensFresh(m.ctx)
-			cmds = append(cmds, m.syncDataTimer.Init())
-		}
-	case authui.SignUpMsg: //TODO get rid of code duplication
-		_, err := m.client.UserSignUp(context.Background(), client.AuthInput{
-			Login:    msg.Login,
-			Password: msg.Password,
-		})
-
-		if err != nil {
-			m.status = err.Error()
-		} else {
-			m.mode = ModeBrowse
-			m.errC = m.client.KeepTokensFresh(m.ctx)
-			cmds = append(cmds, m.syncDataTimer.Init())
-		}
-	case credsui.ChangedMsg:
-		switch m.mode {
-		case ModeEdit:
-			id, _ := strconv.Atoi(m.tables[cred].SelectedRow()[0])
-			err := m.client.UpdateCredData(m.ctx, domain.CredData{
-				ID:       id,
-				Login:    msg.Login,
-				Password: msg.Password,
-				Metadata: msg.Metadata,
-			})
-			if err != nil {
-				m.status = err.Error()
-			}
-		case ModeAdd:
-			err := m.client.CreateNewCredData(m.ctx, domain.CredData{
-				Login:    msg.Login,
-				Password: msg.Password,
-				Metadata: msg.Metadata,
-			})
-			if err != nil {
-				m.status = err.Error()
-			}
-		}
-		m.mode = ModeBrowse
-	case creditcardui.ChangedMsg:
-		switch m.mode {
-		case ModeEdit:
-			id, _ := strconv.Atoi(m.tables[card].SelectedRow()[0])
-			err := m.client.UpdateCardData(m.ctx, domain.CardData{
-				ID:         id,
-				CardNumber: msg.Number,
-				ExpDate:    msg.ExpDate,
-				CVV:        msg.CVV,
-				Name:       msg.Name,
-				Surname:    msg.Surname,
-				Metadata:   msg.Metadata,
-			})
-			if err != nil {
-				m.status = err.Error()
-			}
-		case ModeAdd:
-			err := m.client.CreateNewCardData(m.ctx, domain.CardData{
-				CardNumber: msg.Number,
-				ExpDate:    msg.ExpDate,
-				CVV:        msg.CVV,
-				Name:       msg.Name,
-				Surname:    msg.Surname,
-				Metadata:   msg.Metadata,
-			})
-			if err != nil {
-				m.status = err.Error()
-			}
-		}
-		m.mode = ModeBrowse
-	case textui.ChangedMsg:
-		switch m.mode {
-		case ModeEdit:
-			id, _ := strconv.Atoi(m.tables[text].SelectedRow()[0])
-			err := m.client.UpdateTextData(m.ctx, domain.TextData{
-				ID:       id,
-				Text:     msg.Text,
-				Metadata: msg.Metadata,
-			})
-			if err != nil {
-				m.status = err.Error()
-			}
-		case ModeAdd:
-			err := m.client.CreateNewTextData(m.ctx, domain.TextData{
-				Text:     msg.Text,
-				Metadata: msg.Metadata,
-			})
-			if err != nil {
-				m.status = err.Error()
-			}
-		}
-		m.mode = ModeBrowse
-	case timer.TickMsg, timer.StartStopMsg:
-		m.syncDataTimer, cmd = m.syncDataTimer.Update(msg)
-		cmds = append(cmds, m.syncDataTimer.Init())
-
-		textRows, err := m.client.GetAllTextData(m.ctx)
-		if err != nil {
-			m.status = err.Error()
-		} else {
-			cursor := m.tables[text].Cursor()
-			m.tables[text] = createTextDataTable(textRows)
-			if cursor != -1 {
-				m.tables[text].SetCursor(cursor)
-			}
-		}
-
-		cardRows, err := m.client.GetAllCardData(m.ctx)
-		if err != nil {
-			m.status = err.Error()
-		} else {
-			cursor := m.tables[card].Cursor()
-			m.tables[card] = createCardDataTable(cardRows)
-			if cursor != -1 {
-				m.tables[card].SetCursor(cursor)
-			}
-		}
-
-		credsRows, err := m.client.GetAllCredsData(m.ctx)
-		if err != nil {
-			m.status = err.Error()
-		} else {
-			cursor := m.tables[cred].Cursor()
-			m.tables[cred] = createCredDataTable(credsRows)
-			if cursor != -1 {
-				m.tables[cred].SetCursor(cursor)
-			}
-		}
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			if m.mode != ModeEdit && m.mode != ModeAdd {
-				m.cancel()
-				return m, tea.Quit
-			}
-		case "esc":
-			if m.mode == ModeEdit || m.mode == ModeAdd {
-				m.mode = ModeBrowse
-			}
-		case "tab":
-			if m.mode == ModeBrowse {
-				m.currentTable = (m.currentTable + 1) % len(m.tables)
-			}
-		case "a":
-			if m.mode != ModeBrowse {
-				break
-			}
-			m.mode = ModeAdd
-
-			m.editWgts[m.currentTable], cmd = m.editWgts[m.currentTable].Update(textinput.Blink)
-			return m, cmd
-		case "e":
-			if m.mode != ModeBrowse {
-				break
-			}
-
-			//take current data from selected table
-			var cells []string
-			if m.tables[m.currentTable].Cursor() >= 0 {
-				cells = m.tables[m.currentTable].SelectedRow()
-			}
-
-			if len(cells) == 0 {
-				break
-			}
-
-			switch editWgt := m.editWgts[m.currentTable].(type) {
-			case textui.Model:
-				//0 - data id
-				//1 - text id
-				//2 - metadata
-				editWgt.SetData(textui.ChangedMsg{
-					Text:     cells[1],
-					Metadata: cells[2],
-				})
-			case creditcardui.Model:
-				//0 - data id
-				//1 - card number
-				//2 - exp date
-				//3 - cvv
-				//4 - name
-				//5 - surname
-				//6 - metadata
-				date, _ := time.Parse("01/06", cells[2])
-				editWgt.SetData(creditcardui.ChangedMsg{
-					Number:   cells[1],
-					ExpDate:  date,
-					CVV:      cells[3],
-					Name:     cells[4],
-					Surname:  cells[5],
-					Metadata: cells[6],
-				})
-			case credsui.Model:
-				//0 - data id
-				//1 - login
-				//2 - password
-				//3 - metadata
-				editWgt.SetData(credsui.ChangedMsg{
-					Login:    cells[1],
-					Password: cells[2],
-					Metadata: cells[3],
-				})
-			}
-			m.mode = ModeEdit
-		}
-
-		if m.mode != ModeAuth {
-			m.tables[m.currentTable], cmd = m.tables[m.currentTable].Update(msg)
-			cmds = append(cmds, cmd)
-		}
-
-		if m.mode == ModeEdit || m.mode == ModeAdd {
-			m.editWgts[m.currentTable], cmd = m.editWgts[m.currentTable].Update(msg)
-			cmds = append(cmds, cmd)
-		}
-	default:
-
-	}
-
-	select {
-	case <-m.errC:
-		m.mode = ModeAuth
-	default:
-
-	}
-
-	if m.mode == ModeAuth {
-		m.auth, cmd = m.auth.Update(msg)
-		cmds = append(cmds, cmd)
-	} else {
-		for _, tbl := range m.tables {
-			tbl, cmd = tbl.Update(msg)
-			cmds = append(cmds, cmd)
+func init() {
+	for i, arg := range os.Args {
+		if strings.HasPrefix(arg, "--") {
+			split := strings.SplitN(arg, "=", 2)
+			split[0] = strings.ReplaceAll(split[0], "_", "-")
+			os.Args[i] = strings.Join(split, "=")
 		}
 	}
 
-	return m, tea.Batch(cmds...)
-}
-
-func (m mainModel) View() string {
-	var s string
-
-	//var status string
-	if m.mode != ModeAuth {
-		var line []string
-		for i, tbl := range m.tables {
-			if i == m.currentTable {
-				if m.mode == ModeEdit || m.mode == ModeAdd {
-					line = append(line, m.editWgts[m.currentTable].View())
-					//switch m.currentTable {
-					//case text:
-					//	line = append(line, m.editWgts[m.currentTable].View())
-					//case card:
-					//	line = append(line, m.editWgts[m.currentTable].View())
-					//}
-				} else {
-					line = append(line, focusedModelStyle.Render(fmt.Sprintf("%4s", tbl.View())))
-				}
-			} else {
-				line = append(line, modelStyle.Render(tbl.View()))
-			}
-		}
-		s += lipgloss.JoinHorizontal(lipgloss.Top, line...)
-	} else {
-		s += lipgloss.NewStyle().Render(m.auth.View())
-	}
-
-	if m.mode == ModeBrowse {
-		help := "\ntab: focus next • q: exit • a: add new row • e: edit selected row\n"
-		s += helpStyle.Render(fmt.Sprintf(help))
-	}
-	s += helpStyle.Render(fmt.Sprintf(m.status))
-
-	return s
-}
-
-func createTable(columns []table.Column, rows []table.Row) table.Model {
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(rows),
-		table.WithFocused(true),
-		table.WithHeight(7),
-	)
-
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		BorderBottom(true).
-		Bold(false)
-	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("229")).
-		Background(lipgloss.Color("57")).
-		Bold(false)
-	t.SetStyles(s)
-
-	if len(columns) == 0 || len(rows) == 0 {
-		t.SetCursor(-1)
-	}
-
-	return t
-}
-
-func createTextDataTable(data []domain.TextData) table.Model {
-	columns := []table.Column{
-		{Title: "id", Width: 4},
-		{Title: "Text", Width: 10},
-		{Title: "Metadata", Width: 20},
-	}
-
-	rows := make([]table.Row, 0, len(data))
-	for _, row := range data {
-		rows = append(rows, table.Row{
-			strconv.Itoa(row.ID), row.Text, row.Metadata,
-		})
-	}
-
-	return createTable(columns, rows)
-}
-
-func createCardDataTable(data []domain.CardData) table.Model {
-	columns := []table.Column{
-		{Title: "id", Width: 4},
-		{Title: "CardNumber", Width: 20},
-		{Title: "ExpData", Width: 8},
-		{Title: "CVV", Width: 4},
-		{Title: "Name", Width: 10},
-		{Title: "Surname", Width: 10},
-		{Title: "Metadata", Width: 20},
-	}
-
-	rows := make([]table.Row, 0, len(data))
-	for _, row := range data {
-		rows = append(rows, table.Row{
-			strconv.Itoa(row.ID), row.CardNumber, row.ExpDate.Format("01/06"), row.CVV, row.Name, row.Surname, row.Metadata,
-		})
-	}
-
-	return createTable(columns, rows)
-}
-
-func createCredDataTable(data []domain.CredData) table.Model {
-	columns := []table.Column{
-		{Title: "id", Width: 4},
-		{Title: "Login", Width: 15},
-		{Title: "Password", Width: 10},
-		{Title: "Metadata", Width: 20},
-	}
-
-	rows := make([]table.Row, 0, len(data))
-	for _, row := range data {
-		rows = append(rows, table.Row{
-			strconv.Itoa(row.ID), row.Login, row.Password, row.Metadata,
-		})
-	}
-
-	return createTable(columns, rows)
+	cmd = kingpin.MustParse(cli.Parse(os.Args[1:]))
 }
 
 func main() {
-	//tea.NewProgram(creditcardui.New()).Start()
-	//tea.NewProgram(textui.New()).Start()
-	//tea.NewProgram(credsui.New()).Start()
-	tea.NewProgram(newModel()).Start()
+	if cmd == interactiveMode.FullCommand() {
+		err := tea.NewProgram(ui.NewMainModel(*serverAddr)).Start()
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+	} else {
+		run()
+	}
+}
+
+func run() {
+	ctx, cancel := context.WithCancel(context.Background())
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	go func() {
+		<-signalChan
+		cancel()
+	}()
+
+	cl := client.NewGKClient(*serverAddr)
+
+	if *accessToken == "" { //open methods
+		switch cmd {
+		case signUp.FullCommand():
+			tokens, err := cl.UserSignUp(ctx, client.AuthInput{
+				Login:    *signUpLogin,
+				Password: *signUpPassword,
+			})
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			fmt.Printf("Access Token: %s\nRefresh token: %s\n", tokens.AccessToken, tokens.RefreshToken)
+		case signIn.FullCommand():
+			if tokens, err := cl.UserSignIn(ctx, client.AuthInput{
+				Login:    *signInLogin,
+				Password: *signInPassword,
+			}); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Printf("Access Token: %s\nRefresh token: %s\n", tokens.AccessToken, tokens.RefreshToken)
+			}
+		case refresh.FullCommand():
+			if tokens, err := cl.UserRefresh(ctx, *refreshToken); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Printf("Access Token: %s\nRefresh token: %s\n", tokens.AccessToken, tokens.RefreshToken)
+			}
+		default:
+			fmt.Println("no such open methods")
+		}
+	} else { //closed methods
+		cl.SetAccessToken(*accessToken)
+		switch cmd {
+		case textGetAll.FullCommand():
+			if texts, err := cl.GetAllTextData(ctx); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Printf("%-3s %-23.23s %-16s\n", "ID", "Text", "Metadata")
+				for _, text := range texts {
+					fmt.Printf("%-3d %-23.23s %-16s", text.ID, text.Text, text.Metadata)
+				}
+			}
+		case textUpdateByID.FullCommand():
+			if err := cl.UpdateTextData(ctx, domain.TextData{
+				ID:       *textUID,
+				Text:     *textUText,
+				Metadata: *textUMetadata,
+			}); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Println("Text data was successfully updated")
+			}
+		case textCreateNew.FullCommand():
+			if err := cl.CreateNewTextData(ctx, domain.TextData{
+				Text:     *textCText,
+				Metadata: *textCMetadata,
+			}); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Println("Text data was successfully added")
+			}
+		//********************************************************************
+		case cardGetAll.FullCommand():
+			if cards, err := cl.GetAllCardData(ctx); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Printf("%-3s %-23.23s %-6s %-4s %-15s %-15s  %-15s\n", "ID", "CardNumber", "ExpDate", "CVV", "Name", "Surname", "Metadata")
+				for _, card := range cards {
+					fmt.Printf("%-3d %-33.33s %-8s %-4s %-15s %-15s %-15s",
+						card.ID,
+						card.CardNumber,
+						card.ExpDate,
+						card.CVV,
+						card.Name,
+						card.Surname,
+						card.Metadata,
+					)
+				}
+			}
+		case cardUpdateByID.FullCommand():
+			if err := cl.UpdateCardData(ctx, domain.CardData{
+				CardNumber: *cardUCardNumber,
+				ExpDate:    parseExpireDate(*cardUExpDate),
+				CVV:        *cardUCVV,
+				Name:       *cardUName,
+				Surname:    *cardUSurname,
+				Metadata:   *cardUMetadata,
+			}); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Println("Card data was successfully updated")
+			}
+		case cardCreateNew.FullCommand():
+			if err := cl.UpdateCardData(ctx, domain.CardData{
+				CardNumber: *cardCCardNumber,
+				ExpDate:    parseExpireDate(*cardCExpDate),
+				CVV:        *cardCCVV,
+				Name:       *cardCName,
+				Surname:    *cardCSurname,
+				Metadata:   *cardCMetadata,
+			}); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Println("Card data was successfully added")
+			}
+			//********************************************************************
+		case credGetAll.FullCommand():
+			if creds, err := cl.GetAllCredsData(ctx); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Printf("%-3s %-20s %-20s %-20s\n", "ID", "Login", "Password", "Metadata")
+				for _, cred := range creds {
+					fmt.Printf("%-3d %-20s %-20s %-20s\n", cred.ID, cred.Login, cred.Password, cred.Metadata)
+				}
+			}
+		case credUpdateByID.FullCommand():
+			if err := cl.UpdateCredData(ctx, domain.CredData{
+				ID:       *credUID,
+				Login:    *credULogin,
+				Password: *credUPassword,
+				Metadata: *credUMetadata,
+			}); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Println("Cred data was successfully updated")
+			}
+		case credCreateNew.FullCommand():
+			if err := cl.CreateNewCredData(ctx, domain.CredData{
+				Login:    *credCLogin,
+				Password: *credCPassword,
+				Metadata: *credCMetadata,
+			}); err != nil {
+				fmt.Println(err.Error())
+			} else {
+				fmt.Println("Cred data was successfully added")
+			}
+		}
+	}
+}
+
+func parseExpireDate(exp string) time.Time {
+	date, err := time.Parse("01/06", exp)
+	if err != nil {
+		log.Panicln(err.Error())
+	}
+
+	return date
 }
